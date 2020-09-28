@@ -1,0 +1,1 @@
+ssh -i ~/.ssh/shshnkp-oregon.pem -N -L 0.0.0.0:8888:localhost:8888 -L 0.0.0.0:6006:localhost:6006 ubuntu@
