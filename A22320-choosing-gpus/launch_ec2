@@ -1,0 +1,8 @@
+aws ec2 run-instances \
+		--image-id ami-0e6b2b4ff9072b5a6 \
+		--security-group-ids sg-0ffc82a612622ebcd \
+		--count 1 \
+		--instance-type p3.2xlarge \
+		--key-name shshnkp-oregon \
+		--query "Instances[0].InstanceId" \
+		--tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=gtc_demo}]'
