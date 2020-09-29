@@ -1,0 +1,292 @@
+# Source: rapidsai/charts/dask/templates/dask-jupyter-serviceaccount.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: dask-jupyter
+  namespace: default
+  labels:
+    app: rapidsai
+    release: "rapids-dask"
+    component: jupyter
+---
+# Source: rapidsai/charts/dask/templates/dask-jupyter-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rapidsai-jupyter-config
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: jupyter
+data:
+  jupyter_notebook_config.py: |
+    c = get_config()
+    c.NotebookApp.password = 'sha1:56152965e045:3cd9a2065e78b4a4e46c2d6f35ddd0160fe5b94d'
+
+    
+    c.ServerProxy.host_whitelist = ["localhost", "127.0.0.1", "rapidsai-scheduler"]
+---
+# Source: rapidsai/charts/dask/templates/dask-jupyter-serviceaccount.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: dask-jupyter
+  namespace: default
+  labels:
+    app: rapidsai
+    release: "rapids-dask"
+    component: jupyter
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+---
+# Source: rapidsai/charts/dask/templates/dask-jupyter-serviceaccount.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: dask-jupyter
+  namespace: default
+  labels:
+    app: rapidsai
+    release: "rapids-dask"
+    component: jupyter
+subjects:
+- kind: ServiceAccount
+  name: dask-jupyter
+roleRef:
+  kind: Role
+  name: dask-jupyter
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: rapidsai/charts/dask/templates/dask-jupyter-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rapidsai-jupyter
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: jupyter
+spec:
+  ports:
+    - name: rapidsai-jupyter
+      port: 80
+      targetPort: 8888
+  selector:
+    app: rapidsai
+    release: "rapids-dask"
+    component: jupyter
+  type: ClusterIP
+---
+# Source: rapidsai/charts/dask/templates/dask-scheduler-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rapidsai-scheduler
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: scheduler
+spec:
+  ports:
+    - name: rapidsai-scheduler
+      port: 8786
+      targetPort: 8786
+    - name: rapidsai-webui
+      port: 8787
+      targetPort: 8787
+  selector:
+    app: rapidsai
+    release: "rapids-dask"
+    component: scheduler
+  type: LoadBalancer
+---
+# Source: rapidsai/charts/dask/templates/dask-jupyter-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rapidsai-jupyter
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: jupyter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rapidsai
+      release: "rapids-dask"
+      component: jupyter
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: rapidsai
+        release: "rapids-dask"
+        component: jupyter
+    spec:
+      imagePullSecrets:
+        null
+      containers:
+        - name: rapidsai-jupyter
+          image: "shashank4/examples:rapids-ai-eks"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8888
+          resources:
+            limits:
+              cpu: 2
+              memory: 6G
+              nvidia.com/gpu: 1
+            requests:
+              cpu: 2
+              memory: 6G
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/local/etc/jupyter
+          env:
+            - name: DASK_SCHEDULER_ADDRESS
+              value: rapidsai-scheduler:8786
+            - name: DASK_DISTRIBUTED__DASHBOARD__LINK
+              value: /proxy/rapidsai-scheduler:8787/status
+            - name: JUPYTER_FG
+              value: "true"
+      volumes:
+        - name: config-volume
+          configMap:
+            name: rapidsai-jupyter-config
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: present
+      serviceAccountName: "dask-jupyter"
+---
+# Source: rapidsai/charts/dask/templates/dask-scheduler-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rapidsai-scheduler
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rapidsai
+      release: "rapids-dask"
+      component: scheduler
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: rapidsai
+        release: "rapids-dask"
+        component: scheduler
+    spec:
+      imagePullSecrets:
+        null
+      containers:
+        - name: rapidsai-scheduler
+          image: "shashank4/examples:rapids-ai-eks"
+          imagePullPolicy: Always
+          args:
+            - dask-scheduler
+            - --port
+            - "8786"
+            - --bokeh-port
+            - "8787"
+          ports:
+            - containerPort: 8786
+            - containerPort: 8787
+          resources:
+            {}
+          env:
+            null
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: present
+---
+# Source: rapidsai/charts/dask/templates/dask-worker-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rapidsai-worker
+  labels:
+    app: rapidsai
+    heritage: "Helm"
+    release: "rapids-dask"
+    chart: dask-4.5.0
+    component: worker
+spec:
+  replicas: 7
+  selector:
+    matchLabels:
+      app: rapidsai
+      release: "rapids-dask"
+      component: worker
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: rapidsai
+        release: "rapids-dask"
+        component: worker
+    spec:
+      imagePullSecrets:
+        null
+      containers:
+        - name: rapidsai-worker
+          image: "shashank4/examples:rapids-ai-eks"
+          imagePullPolicy: Always
+          args:
+            - dask-cuda-worker
+            - rapidsai-scheduler:8786
+            - --nthreads
+            - "6"
+            - --memory-limit
+            - "50G"
+            - --no-dashboard
+          ports:
+            - containerPort: 8789
+          resources:
+            limits:
+              cpu: 6
+              memory: 50G
+              nvidia.com/gpu: 1
+            requests:
+              cpu: 6
+              memory: 50G
+              nvidia.com/gpu: 1
+          env:
+            null
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: present
